@@ -1,3 +1,5 @@
+# target selector class, not needed anymore
+
 import math
 
 class TargetSelector:

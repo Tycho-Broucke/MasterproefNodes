@@ -10,6 +10,7 @@ setup(
         ('share/ament_index/resource_index/packages',
             ['resource/' + package_name]),
         ('share/' + package_name, ['package.xml']),
+        ('share/' + package_name + '/launch', ['launch/raspi4_nodes.launch.py']),
     ],
     install_requires=[
         'setuptools',
@@ -30,7 +31,11 @@ setup(
             'csv_subscriber = masterproef_nodes.csv_subscriber:main',  
             'csv_watcher = masterproef_nodes.csv_watcher:main',
             'target_selector_node = masterproef_nodes.target_selector_node:main',
-            'yolo_coordinate_publisher = masterproef_nodes.yolo_coordinate_publisher:main',     
+            'yolo_coordinate_publisher = masterproef_nodes.yolo_coordinate_publisher:main',
+            'heartbeat_publisher = masterproef_nodes.heartbeat_publisher:main',  
+            'heartbeat_monitor = masterproef_nodes.heartbeat_monitor:main',
+            'image_server = masterproef_nodes.image_server:main',
+            'image_client = masterproef_nodes.image_client:main', 
         ],
     },
 )
