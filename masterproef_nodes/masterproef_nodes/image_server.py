@@ -1,3 +1,6 @@
+# This code runs an image server node: the node captures images from the usb camera and publishes it once a trigger request from the client is received. 
+# the node publishes the image to the captured_image topic
+
 import rclpy
 from rclpy.node import Node
 from std_srvs.srv import Trigger  # Using Trigger service
@@ -47,6 +50,7 @@ def main(args=None):
     rclpy.init(args=args)
     node = ImageServer()
     rclpy.spin(node)
+    node.destroy_node()
     rclpy.shutdown()
 
 if __name__ == '__main__':

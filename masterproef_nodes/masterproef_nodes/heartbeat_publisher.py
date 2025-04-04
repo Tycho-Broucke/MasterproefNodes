@@ -1,3 +1,5 @@
+# this code runs a node that publishes a message containing the node name and timestamp at a predefined interval rate, a monitor node should detect these messages and use it for error handling once it does not receive the messages anymore
+
 import rclpy
 from rclpy.node import Node
 from std_msgs.msg import String

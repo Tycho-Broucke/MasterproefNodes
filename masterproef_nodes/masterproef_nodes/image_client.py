@@ -1,3 +1,7 @@
+# this code runs a node which sends a trigger request to the image_server to get an image on the captured_image topic
+# once the image is received, it is displayed and the user can click 4 points on the image to determine the keepout zone
+# after clicking, the coordinates of the zone are automatically saved to the csv file
+
 import rclpy
 from rclpy.node import Node
 from std_srvs.srv import Trigger
@@ -98,6 +102,7 @@ def main(args=None):
     client = ImageClient()
     client.send_request()
     rclpy.spin(client)  # Continue running and waiting for events
+    client.destroy_node()
     rclpy.shutdown()  # Shutdown once the node is no longer needed
 
 if __name__ == '__main__':

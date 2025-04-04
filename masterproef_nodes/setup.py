@@ -35,7 +35,9 @@ setup(
             'heartbeat_publisher = masterproef_nodes.heartbeat_publisher:main',  
             'heartbeat_monitor = masterproef_nodes.heartbeat_monitor:main',
             'image_server = masterproef_nodes.image_server:main',
-            'image_client = masterproef_nodes.image_client:main', 
+            'image_client = masterproef_nodes.image_client:main',
+            'beamer_controller = masterproef_nodes.beamer_controller:main',
+            'compute_transform = masterproef_nodes.compute_transform:main'
         ],
     },
 )
