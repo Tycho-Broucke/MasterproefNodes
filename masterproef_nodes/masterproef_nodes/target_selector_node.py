@@ -18,7 +18,6 @@ class TargetSelector:
         if not points_id1 or not points_id2:
             return None
 
-        # Assuming we calculate the distance between the first points of each ID
         point1 = points_id1[0]
         point2 = points_id2[0]
 
@@ -26,7 +25,7 @@ class TargetSelector:
         return distance
 
     def process_coordinates(self, coordinates, robot_id, person_id, null_id):
-        self.targets.clear()  # Clear previous targets
+        self.targets.clear()
         for coord in coordinates:
             x, y, target_id = coord
             if target_id != null_id:
@@ -41,15 +40,19 @@ class TargetSelector:
                 distance = math.sqrt((person_point['x'] - robot_point['x'])**2 + (person_point['y'] - robot_point['y'])**2)
                 distances.append((distance, person_point))
 
-        return distances
+        return distances, robot_points
 
     def get_shortest_distance(self, coordinates, robot_id, person_id, null_id):
-        distances = self.process_coordinates(coordinates, robot_id, person_id, null_id)
+        distances, robot_points = self.process_coordinates(coordinates, robot_id, person_id, null_id)
+
+        if not robot_points:
+            return None, None, coordinates[0] if coordinates else None  # Fallback
+
         if not distances:
-            return None, None
+            return None, None, None
 
         shortest_distance, closest_person = min(distances, key=lambda x: x[0])
-        return shortest_distance, closest_person
+        return shortest_distance, closest_person, None
 
 
 class TargetSelectorNode(Node):
@@ -61,27 +64,31 @@ class TargetSelectorNode(Node):
         self.get_logger().info("Target Selector Node started, waiting for coordinates...")
 
     def callback(self, data):
-        # Parse the incoming data (coordinates)
         coordinates = self.parse_coordinates(data.data)
-
-        # Log the received coordinates
         self.get_logger().info(f"Received coordinates: {coordinates}")
 
-        # Initialize the TargetSelector and calculate shortest distance
         selector = TargetSelector()
-        shortest_distance, closest_person = selector.get_shortest_distance(coordinates, 'R', 'P', None)
-        
-        # If a closest person is found, publish the result
-        if shortest_distance is not None and closest_person is not None:
+        shortest_distance, closest_person, fallback_coord = selector.get_shortest_distance(coordinates, 'R', 'P', None)
+
+        msg = String()
+
+        if fallback_coord:
+            result = f"No robot found. Fallback coordinate: {fallback_coord}"
+            self.get_logger().info(f"Publishing fallback result: {result}")
+            msg.data = result
+        elif shortest_distance is not None and closest_person is not None:
             result = f"Shortest distance: {shortest_distance}, Closest person coordinates: {closest_person}"
             self.get_logger().info(f"Publishing result: {result}")
-            msg = String()
             msg.data = result
-            self.publisher_.publish(msg)
+        else:
+            result = "No valid target found."
+            self.get_logger().info(result)
+            msg.data = result
+
+        self.publisher_.publish(msg)
 
     def parse_coordinates(self, data):
-        # Parse the incoming string of coordinates into a list of tuples
-        coordinates = eval(data)  # Assuming the data is a string of tuples
+        coordinates = eval(data)  # Use with caution; safer alternatives exist
         return coordinates
 
 

@@ -1,18 +1,105 @@
 import rclpy
 from rclpy.node import Node
 from std_msgs.msg import String
-import torch
+from std_srvs.srv import Trigger
+from ultralytics import YOLO
 import cv2
 import numpy as np
+import pandas as pd
 
 class YoloNode(Node):
     def __init__(self):
         super().__init__('yolo_node')
+
+        # Load YOLOv8 model
+        self.model = YOLO('yolov8s.pt')
+        self.get_logger().info("Loaded YOLOv8 model")
+
+        # Camera capture
+        self.cap = cv2.VideoCapture(0)
+
+        # Publisher for detected coordinates
         self.publisher_ = self.create_publisher(String, 'coordinates_topic', 10)
-        self.timer = self.create_timer(1.0, self.detect_objects)  # Timer triggers every 1 second
-        self.cap = cv2.VideoCapture(0)  # Open USB camera
-        self.model = torch.hub.load('ultralytics/yolov5', 'yolov5s', pretrained=True)  # Load YOLOv5
-        self.get_logger().info("YOLO Node Started")
+
+        # Publisher for zone update acknowledgment
+        self.ack_publisher = self.create_publisher(String, 'ack_zone', 10)
+
+        # Service client for triggering CSV zone update
+        self.client = self.create_client(Trigger, 'csv_zone_trigger')
+
+        # Wait for the service to be available
+        while not self.client.wait_for_service(timeout_sec=1.0):
+            self.get_logger().info('Service not available, waiting again...')
+        
+        self.get_logger().info('Service "csv_zone_trigger" is available.')
+
+        # Initialize the zone with default values
+        self.upperleft = (0, 0)
+        self.upperright = (640, 0)
+        self.lowerright = (640, 480)
+        self.lowerleft = (0, 480)
+        self.zone_contour = self.get_zone_contour()
+
+        # Subscribe to CSV data once the trigger is requested
+        self.create_subscription(String, 'csv_data', self.csv_data_callback, 10)
+
+        # Send trigger request to start the process
+        self.update_zone_from_service()
+
+        # Timer for object detection
+        self.timer = self.create_timer(1.0, self.detect_objects)
+        self.get_logger().info("YOLOv8 Node Started")
+
+    def get_zone_contour(self):
+        return np.array([self.upperleft, self.upperright, self.lowerright, self.lowerleft], dtype=np.int32)
+
+    def update_zone_from_service(self):
+        request = Trigger.Request()
+        future = self.client.call_async(request)
+        rclpy.spin_until_future_complete(self, future)
+        if future.result() is not None:
+            self.get_logger().info(f"Trigger request response: {future.result().message}")
+        else:
+            self.get_logger().error("Service call failed.")
+
+    def csv_data_callback(self, msg):
+        self.get_logger().info(f"Received CSV data: {msg.data}")
+        self.update_zone_from_csv(msg.data)
+        self.get_logger().info("csv_data_callback called")
+
+    def update_zone_from_csv(self, csv_data):
+        try:
+            if not csv_data:
+                self.get_logger().warn("Received empty CSV data.")
+                return
+
+            self.get_logger().info(f"CSV Data to be parsed: {csv_data}")
+
+            df = pd.read_json(csv_data)
+            if df.empty or len(df) == 0:
+                self.get_logger().warn("Received empty DataFrame after parsing CSV data.")
+                return
+
+            row = df.iloc[0]
+            self.upperleft = eval(row['UpperLeft'])
+            self.upperright = eval(row['UpperRight'])
+            self.lowerleft = eval(row['LowerLeft'])
+            self.lowerright = eval(row['LowerRight'])
+
+            self.zone_contour = self.get_zone_contour()
+            self.get_logger().info(f"Updated zone: {self.zone_contour.tolist()}")
+
+            ack_msg = String()
+            ack_msg.data = "Zone updated successfully"
+            self.ack_publisher.publish(ack_msg)
+            self.get_logger().info("Published zone update acknowledgment")
+
+        except Exception as e:
+            self.get_logger().error(f"Failed to parse CSV zone data: {e}")
+
+    def is_inside_zone(self, x, y):
+        point = (int(x), int(y))
+        return cv2.pointPolygonTest(self.zone_contour, point, False) >= 0
 
     def detect_objects(self):
         ret, frame = self.cap.read()
@@ -20,60 +107,56 @@ class YoloNode(Node):
             self.get_logger().error("Failed to capture image")
             return
 
-        results = self.model(frame)  # Perform inference on the frame
-        detections = results.pandas().xyxy[0]  # Get detection results
+        # Draw the zone contour
+        # cv2.polylines(frame, [self.zone_contour], isClosed=True, color=(0, 255, 255), thickness=2)
 
-        # Initialize list of coordinates (first robot, then people)
+        results = self.model(frame, verbose=False)[0]
+        detections = results.boxes
+
         coordinates = []
-        
-        # Find the robot (assuming 'robot' is detected)
         robot_detected = False
-        for _, det in detections.iterrows():
-            if det['name'] == 'robot' and not robot_detected:
-                # Robot is detected, add its bottom-middle coordinate
-                x_center = (det['xmin'] + det['xmax']) / 2
-                y_bottom = det['ymax']
-                coordinates.append((x_center, y_bottom, 'R'))  # Robot coordinate
-                robot_detected = True
-                # Draw the robot on the frame, toggle for visualisation
-                # cv2.putText(frame, "Robot", (int(x_center), int(y_bottom)), 
-                #             cv2.FONT_HERSHEY_SIMPLEX, 0.8, (0, 255, 0), 2, cv2.LINE_AA)
-                # cv2.circle(frame, (int(x_center), int(y_bottom)), 5, (0, 255, 0), -1)
-
-        # Find people (add up to 9 people)
         people_count = 0
-        for _, det in detections.iterrows():
-            if det['name'] == 'person' and people_count < 9:
-                # Person is detected, add its bottom-middle coordinate
-                x_center = (det['xmin'] + det['xmax']) / 2
-                y_bottom = det['ymax']
-                coordinates.append((x_center, y_bottom, 'P'))  # Person coordinate
-                people_count += 1
-                # Draw the person on the frame, toggle for visualisation
-                # cv2.putText(frame, "Person", (int(x_center), int(y_bottom)), 
-                #             cv2.FONT_HERSHEY_SIMPLEX, 0.8, (0, 0, 255), 2, cv2.LINE_AA)
-                # cv2.circle(frame, (int(x_center), int(y_bottom)), 5, (0, 0, 255), -1)
 
-        # If less than 9 people, add (0, 0, None) as placeholder
-        while len(coordinates) < 10:  # Total of 10 (1 robot + 9 people)
-            coordinates.append((0, 0, None))  # Add null coordinates
+        for box in detections:
+            cls_id = int(box.cls[0].item())
+            class_name = self.model.names[cls_id]
 
-        # Convert list of coordinates to string format
-        coordinates_str = str(coordinates)
-        
-        # Publish the coordinates to the topic
+            if class_name not in ['person', 'robot']:
+                continue  # Skip anything that's not a person or robot
+
+            xyxy = box.xyxy[0].cpu().numpy()
+            x_center = (xyxy[0] + xyxy[2]) / 2
+            y_bottom = xyxy[3]
+            inside = self.is_inside_zone(x_center, y_bottom)
+
+            # color = (0, 255, 0) if inside else (0, 0, 255)  # Green if inside, red if outside
+            # cv2.circle(frame, (int(x_center), int(y_bottom)), radius=5, color=color, thickness=-1)
+
+            if class_name == 'robot' and not robot_detected:
+                if inside:
+                    coordinates.append((x_center, y_bottom, 'R'))
+                    robot_detected = True
+
+            elif class_name == 'person' and people_count < 9:
+                if inside:
+                    coordinates.append((x_center, y_bottom, 'P'))
+                    people_count += 1
+
+        while len(coordinates) < 10:
+            coordinates.append((0, 0, None))
+
         msg = String()
-        msg.data = coordinates_str
+        msg.data = str(coordinates)
         self.publisher_.publish(msg)
-        self.get_logger().info(f"Published coordinates: {coordinates_str}")
+        self.get_logger().info(f"Published coordinates: {msg.data}")
 
-        # Show the frame with the coordinates visualized, toggle for visualisation
-        # cv2.imshow('YOLO - Coordinates Visualization', frame)
-        # cv2.waitKey(1)  # Add this to keep the window responsive
+        # Show visualization window
+        # cv2.imshow("YOLOv8 Zone Visualization", frame)
+        # cv2.waitKey(1)
 
     def destroy_node(self):
         self.cap.release()
-        cv2.destroyAllWindows()  # Close the OpenCV window
+        cv2.destroyAllWindows()
         super().destroy_node()
 
 def main(args=None):
