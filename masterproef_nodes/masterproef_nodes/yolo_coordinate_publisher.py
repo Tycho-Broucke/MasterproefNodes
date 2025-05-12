@@ -6,13 +6,14 @@ from ultralytics import YOLO
 import cv2
 import numpy as np
 import pandas as pd
+import time
 
-class YoloNode(Node):
+class YoloCoordinatePublisher(Node):
     def __init__(self):
-        super().__init__('yolo_node')
+        super().__init__('yolo_coordinate_publisher')
 
         # Load YOLOv8 model
-        self.model = YOLO('yolov8s.pt')
+        self.model = YOLO('/home/tycho/pi4_ws/yolov8n.onnx')
         self.get_logger().info("Loaded YOLOv8 model")
 
         # Camera capture
@@ -41,7 +42,7 @@ class YoloNode(Node):
         self.zone_contour = self.get_zone_contour()
 
         # Subscribe to CSV data once the trigger is requested
-        self.create_subscription(String, 'csv_data', self.csv_data_callback, 10)
+        self.create_subscription(String, 'csv_zone_data', self.csv_data_callback, 10)
 
         # Send trigger request to start the process
         self.update_zone_from_service()
@@ -102,6 +103,8 @@ class YoloNode(Node):
         return cv2.pointPolygonTest(self.zone_contour, point, False) >= 0
 
     def detect_objects(self):
+        start_time = time.time()
+
         ret, frame = self.cap.read()
         if not ret:
             self.get_logger().error("Failed to capture image")
@@ -153,6 +156,9 @@ class YoloNode(Node):
         # Show visualization window
         # cv2.imshow("YOLOv8 Zone Visualization", frame)
         # cv2.waitKey(1)
+        end_time = time.time()
+        elapsed = end_time - start_time
+        self.get_logger().info(f"detect_objects() took {elapsed:.3f} seconds")
 
     def destroy_node(self):
         self.cap.release()
@@ -161,7 +167,7 @@ class YoloNode(Node):
 
 def main(args=None):
     rclpy.init(args=args)
-    node = YoloNode()
+    node = YoloCoordinatePublisher()
     try:
         rclpy.spin(node)
     except KeyboardInterrupt:

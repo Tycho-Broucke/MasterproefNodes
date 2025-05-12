@@ -7,6 +7,7 @@ from std_srvs.srv import Trigger  # Using Trigger service
 from sensor_msgs.msg import Image as ROSImage
 import cv2
 from cv_bridge import CvBridge
+from builtin_interfaces.msg import Time
 
 class ImageServer(Node):
     def __init__(self):
@@ -38,7 +39,9 @@ class ImageServer(Node):
             return response
 
         # Convert OpenCV image to ROS Image message
+        now = self.get_clock().now().to_msg()
         ros_image = self.bridge.cv2_to_imgmsg(frame, encoding='bgr8')
+        ros_image.header.stamp = now
         self.pub.publish(ros_image)
         
         response.success = True

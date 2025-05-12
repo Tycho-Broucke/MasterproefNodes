@@ -1,3 +1,11 @@
+# JETSON NODE
+#
+# this code runs a node which publishes the zone coordinates needed to check if tracked people are inside of the zone
+# it publishes the coordinates when a trigger request is sent by the yolo node that needs the coordinates at startup
+# it also publishes the coordinates once an update to the csv file containing the coordinates, is detected
+#
+# the log statements that will be called in each iteration are commented out to keep the memory from filling up
+
 import rclpy
 import pandas as pd
 import os
@@ -8,15 +16,15 @@ from std_srvs.srv import Trigger
 from watchdog.observers import Observer
 from watchdog.events import FileSystemEventHandler
 
-class CSVWatcher(Node):
+class CSVZoneWatcher(Node):
     def __init__(self):
-        super().__init__('csv_watcher')
+        super().__init__('csv_zone_watcher')
 
-        # Path to the CSV file (UPDATE THIS)
-        self.csv_path = "/home/tycho/pi4_ws/data/parameters.csv"
+        # Path to the CSV file
+        self.csv_path = "/home/tycho/pi4_ws/data/zone_coordinates.csv" # CHANGE THIS PATH TO THE CORRECT PATH ON THE JETSON
 
         # Publisher for CSV data
-        self.publisher_ = self.create_publisher(String, 'csv_data', 10)
+        self.publisher_ = self.create_publisher(String, 'csv_zone_data', 10)
 
         # Subscriber to listen for acknowledgment messages on the 'ack_zone' topic
         self.create_subscription(String, 'ack_zone', self.ack_zone_callback, 10)
@@ -45,7 +53,7 @@ class CSVWatcher(Node):
 
         # Respond with a success message
         response.success = True
-        response.message = "CSV data published successfully"
+        response.message = "Zone CSV data published successfully"
         return response
 
     def publish_csv(self):
@@ -106,13 +114,16 @@ class CSVFileHandler(FileSystemEventHandler):
 
 def main(args=None):
     rclpy.init(args=args)
-    node = CSVWatcher()
+    node = CSVZoneWatcher()
     try:
-        rclpy.spin(node)
+        rclpy.spin(node)  # Keeps the node alive to process callbacks
     except KeyboardInterrupt:
-        pass
-    node.destroy_node()
-    rclpy.shutdown()
+        node.get_logger().info("KeyboardInterrupt received. Shutting down node.")
+    except Exception as e:
+        node.get_logger().error(f"Unhandled exception: {e}")
+    finally:
+        node.destroy_node()
+        rclpy.shutdown()
 
 if __name__ == '__main__':
     main()

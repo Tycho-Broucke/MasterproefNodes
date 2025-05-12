@@ -7,6 +7,7 @@ from rclpy.node import Node
 from std_srvs.srv import Trigger
 from sensor_msgs.msg import Image as ROSImage
 from cv_bridge import CvBridge
+from rclpy.time import Time
 import cv2
 import csv
 
@@ -16,7 +17,7 @@ class ImageClient(Node):
         self.cli = self.create_client(Trigger, 'capture_image')
         self.sub = self.create_subscription(ROSImage, 'captured_image', self.image_callback, 10)
         self.bridge = CvBridge()
-        self.csv_path = "/home/tycho/pi4_ws/data/parameters.csv"
+        self.csv_path = "/home/tycho/pi4_ws/data/zone_coordinates.csv"
         self.points = []
 
         # Wait for the image capture service to become available
@@ -89,8 +90,17 @@ class ImageClient(Node):
 
     def image_callback(self, msg):
         """Callback for the image subscription."""
+
+
         self.get_logger().info('Image received from server.')
         self.current_image = self.bridge.imgmsg_to_cv2(msg, desired_encoding='bgr8')
+
+        recv_time = self.get_clock().now()
+        sent_time = Time.from_msg(msg.header.stamp)
+        latency = (recv_time - sent_time).nanoseconds / 1e6  # Convert to milliseconds
+
+        self.get_logger().info(f'Image received. Transmission latency: {latency:.2f} ms')
+        
         cv2.imshow('Received Image', self.current_image)
         cv2.setMouseCallback('Received Image', self.mark_point)
         

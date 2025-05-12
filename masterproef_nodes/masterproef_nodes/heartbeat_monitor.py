@@ -1,3 +1,11 @@
+# JETSON NODE
+#
+# this code runs a node that keeps track of the messages received by the heartbeat publisher
+# once it does not recieve anymore messages, the connection is considered as lost
+# it then gives an error, but this error still has to be handled (emergency stop should be performed)
+#
+# the log statements that will be called in each iteration are commented out to keep the memory from filling up
+
 import rclpy
 from rclpy.node import Node
 from std_msgs.msg import String
@@ -42,9 +50,15 @@ class HeartbeatMonitor(Node):
 def main(args=None):
     rclpy.init(args=args)
     node = HeartbeatMonitor()
-    rclpy.spin(node)
-    node.destroy_node()
-    rclpy.shutdown()
+    try:
+        rclpy.spin(node)  # Keeps the node alive to process callbacks
+    except KeyboardInterrupt:
+        node.get_logger().info("KeyboardInterrupt received. Shutting down node.")
+    except Exception as e:
+        node.get_logger().error(f"Unhandled exception: {e}")
+    finally:
+        node.destroy_node()
+        rclpy.shutdown()
 
 if __name__ == '__main__':
     main()

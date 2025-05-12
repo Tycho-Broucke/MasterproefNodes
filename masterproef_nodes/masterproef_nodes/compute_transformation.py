@@ -1,6 +1,12 @@
+# this code runs a node which retreives a stitched image from the service and lets the user draw 4 points on it
+# it also lets the user draw the 4 EXACT same points on the slam map and calculates the transformation between image pixel coordinates and real world slam coordinates
+# finally, it saves the transformation matrix to a csv file for later use
+# it also listens to an acknowledgment from the target selecter, which lets the user know once the new transformation matrix is correctly updated
+
 import rclpy
 from rclpy.node import Node
-from std_srvs.srv import Trigger
+from masterproef_interfaces.srv import GetStitchedImage
+from std_msgs.msg import String
 from sensor_msgs.msg import Image as ROSImage
 from cv_bridge import CvBridge
 import cv2
@@ -8,25 +14,28 @@ import numpy as np
 import yaml
 import csv
 
-class ComputeTransform(Node):
+class ComputeTransformation(Node):
     def __init__(self):
-        super().__init__('compute_transform')
+        super().__init__('compute_transformation')
 
         # ROS2 Components
-        self.cli = self.create_client(Trigger, 'capture_image')  # Image request service
-        self.sub = self.create_subscription(ROSImage, 'captured_image', self.image_callback, 10)  # Image subscriber
+        self.cli = self.create_client(GetStitchedImage, 'get_stitched_image')
+        self.ack_subscription = self.create_subscription(
+            String,
+            'ack_transform',
+            self.ack_callback,
+            10)
         self.bridge = CvBridge()
 
-        # Paths (Modify as needed)
-        self.slam_map_path = "/home/tycho/pi4_ws/data/slam_example_map.pgm"
-        self.slam_yaml_path = "/home/tycho/pi4_ws/data/slam_example_map.yaml"
-        self.csv_path = "/home/tycho/pi4_ws/data/transform.csv"
+        # Paths (modify as needed)
+        self.slam_map_path = "/home/tycho/pi4_ws/data/slam_example_map.pgm" # CHANGE THIS PATH TO THE CORRECT PATH ON THE JETSON
+        self.slam_yaml_path = "/home/tycho/pi4_ws/data/slam_example_map.yaml" # CHANGE THIS PATH TO THE CORRECT PATH ON THE JETSON
+        self.csv_path = "/home/tycho/pi4_ws/data/transform.csv" # CHANGE THIS PATH TO THE CORRECT PATH ON THE JETSON
 
         # Transformation Data
         self.camera_points = []
         self.slam_map_pixels = []
         self.real_world_points = []
-        self.current_image = None
 
         # Load SLAM Map
         self.slam_map = cv2.imread(self.slam_map_path)
@@ -37,8 +46,13 @@ class ComputeTransform(Node):
         # Load SLAM YAML Metadata
         self.load_slam_metadata()
 
+        # Wait for service to become available
+        while not self.cli.wait_for_service(timeout_sec=1.0):
+            self.get_logger().info('Waiting for stitched image service...')
+
         self.get_logger().info("Compute Transform Node Ready!")
-        self.request_image()  # Initiate image request right away
+        self.request_stitched_image()
+
 
     def load_slam_metadata(self):
         with open(self.slam_yaml_path, 'r') as file:
@@ -50,32 +64,29 @@ class ComputeTransform(Node):
 
         self.get_logger().info(f"Loaded SLAM metadata: Resolution={self.map_resolution}, Origin={self.map_origin}")
 
-    def request_image(self):
-        if not self.cli.wait_for_service(timeout_sec=2.0):
-            self.get_logger().error("Image capture service unavailable!")
-            return
+    def request_stitched_image(self):
 
-        request = Trigger.Request()
+        request = GetStitchedImage.Request()
         future = self.cli.call_async(request)
         rclpy.spin_until_future_complete(self, future)
 
         response = future.result()
         if response and response.success:
-            self.get_logger().info("Image capture requested successfully.")
+            self.get_logger().info("Stitched image received successfully.")
+            self.process_image(response.image)
         else:
-            self.get_logger().error("Failed to request image capture.")
+            self.get_logger().error(f"Failed to receive stitched image: {response.message if response else 'No response'}")
 
-    def image_callback(self, msg):
-        self.get_logger().info("Image received from image server.")
-        self.current_image = self.bridge.imgmsg_to_cv2(msg, desired_encoding='bgr8')
+    def process_image(self, ros_image_msg):
+        current_image = self.bridge.imgmsg_to_cv2(ros_image_msg, desired_encoding='bgr8')
 
         # Step 1: Select SLAM Map Points
         self.get_logger().info("Step 1: Select 4 points on SLAM map.")
-        self.select_points(self.slam_map, "SLAM Map", self.slam_map_pixels)
+        self.select_points(self.slam_map.copy(), "SLAM Map", self.slam_map_pixels)
 
         # Step 2: Select Camera Image Points
-        self.get_logger().info("Step 2: Select 4 points on Camera Image.")
-        self.select_points(self.current_image, "Camera Image", self.camera_points)
+        self.get_logger().info("Step 2: Select 4 points on stitched Camera Image.")
+        self.select_points(current_image.copy(), "Stitched Image", self.camera_points)
 
         # Step 3: Convert to real-world coordinates
         self.get_logger().info("Step 3: Convert SLAM pixels to real-world coordinates.")
@@ -134,12 +145,15 @@ class ComputeTransform(Node):
 
         self.get_logger().info(f"Transformation matrix saved to {self.csv_path}")
 
+    def ack_callback(self, msg):
+        self.get_logger().info(f"Acknowledgment received: {msg.data}")
+
 
 def main(args=None):
     rclpy.init(args=args)
-    node = ComputeTransform()
+    node = ComputeTransformation()
     try:
-        rclpy.spin(node)  # Keeps the node alive to process callbacks
+        rclpy.spin(node)
     except KeyboardInterrupt:
         node.get_logger().info("KeyboardInterrupt received. Shutting down node.")
     except Exception as e:

@@ -1,3 +1,11 @@
+# JETSON NODE
+#
+# this code runs a node which publishes the transform matrix needed to transform an image pixel to a real world coordinate
+# it publishes the transform when a trigger request is sent by the target selector node that needs the transform at startup
+# it also publishes the transform once an update to the csv file containing the transform, is detected
+#
+# the log statements that will be called in each iteration are commented out to keep the memory from filling up
+
 import rclpy
 import pandas as pd
 import os
@@ -13,7 +21,7 @@ class CSVTransformWatcher(Node):
         super().__init__('csv_transform_watcher')
 
         # Path to the transform CSV file
-        self.csv_path = "/home/tycho/pi4_ws/data/transform.csv"
+        self.csv_path = "/home/tycho/pi4_ws/data/transform.csv" # CHANGE THIS PATH TO THE CORRECT PATH ON THE JETSON
 
         # Publisher for CSV data
         self.publisher_ = self.create_publisher(String, 'csv_transform_data', 10)
@@ -101,11 +109,14 @@ def main(args=None):
     rclpy.init(args=args)
     node = CSVTransformWatcher()
     try:
-        rclpy.spin(node)
+        rclpy.spin(node)  # Keeps the node alive to process callbacks
     except KeyboardInterrupt:
-        pass
-    node.destroy_node()
-    rclpy.shutdown()
+        node.get_logger().info("KeyboardInterrupt received. Shutting down node.")
+    except Exception as e:
+        node.get_logger().error(f"Unhandled exception: {e}")
+    finally:
+        node.destroy_node()
+        rclpy.shutdown()
 
 if __name__ == '__main__':
     main()
