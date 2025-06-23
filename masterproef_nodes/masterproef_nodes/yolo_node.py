@@ -25,6 +25,11 @@ class YoloNode(Node):
         self.model = YOLO('/home/tycho/pi4_ws/yolov8n.onnx') # STILL HAVE TO CHANGE TO THE CUSTOM TRAINED MODEL FOR ROBOT DETECTION
         self.get_logger().info("Loaded YOLOv8 model")
 
+        # Warm-up the model with a blank or dummy image
+        dummy_frame = np.zeros((480, 640, 3), dtype=np.uint8)
+        self.model(dummy_frame)
+        self.get_logger().info("YOLO model warm-up completed.")
+
         self.bridge = CvBridge()
 
         # Publisher for detected coordinates
@@ -106,16 +111,21 @@ class YoloNode(Node):
         return cv2.pointPolygonTest(self.zone_contour, (int(x), int(y)), False) >= 0
 
     def request_image(self):
+        self.image_request_start = time.time()  # Start time for image service call
         request = GetStitchedImage.Request()
         future = self.image_client.call_async(request)
         future.add_done_callback(self.image_response_callback)
 
     def image_response_callback(self, future):
         try:
+            image_service_end = time.time()
             response = future.result()
             if not response.success:
                 self.get_logger().error(f"Failed to get stitched image: {response.message}")
             else:
+                # Log image service providing time
+                service_duration = image_service_end - self.image_request_start
+                self.get_logger().info(f"Image service call took {service_duration:.3f} seconds")
                 frame = self.bridge.imgmsg_to_cv2(response.image, desired_encoding='bgr8')
                 self.detect_objects(frame)
 
@@ -158,10 +168,12 @@ class YoloNode(Node):
         msg = String()
         msg.data = str(coordinates)
         self.publisher_.publish(msg)
-        self.get_logger().info(f"Published coordinates: {msg.data}")
+        # self.get_logger().info(f"Published coordinates: {msg.data}")
 
         end = time.time()
         self.get_logger().info(f"Object detection took {end - start:.3f}s")
+        full_duration = end - self.image_request_start
+        self.get_logger().info(f"The full process from image request to comleting yolo detection took {full_duration:.3f} seconds")
 
         # Display the frame with visual info
         self.display_frame(frame, coordinates)

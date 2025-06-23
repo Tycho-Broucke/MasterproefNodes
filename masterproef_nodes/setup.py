@@ -45,6 +45,7 @@ setup(
             'quiz_location_selector = masterproef_nodes.quiz_location_selector:main',
             'charge_location_selector = masterproef_nodes.charge_location_selector:main',
             'zone_location_selector = masterproef_nodes.zone_location_selector:main',
+            'visualise_slam = masterproef_nodes.visualise_slam:main',
             'csv_transform_watcher = masterproef_nodes.csv_transform_watcher:main'
         ],
     },

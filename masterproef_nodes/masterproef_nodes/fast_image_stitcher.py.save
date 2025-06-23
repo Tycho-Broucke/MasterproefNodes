@@ -9,48 +9,15 @@ from cv_bridge import CvBridge
 from sensor_msgs.msg import Image
 from masterproef_interfaces.srv import GetStitchedImage
 import cv2
-import threading
 import time
-
-class CameraStream:
-    def __init__(self, device, width=640, height=480):
-        self.cap = cv2.VideoCapture(device)
-        self.cap.set(cv2.CAP_PROP_FRAME_WIDTH, width)
-        self.cap.set(cv2.CAP_PROP_FRAME_HEIGHT, height)
-
-        self.lock = threading.Lock()
-        self.frame = None
-        self.running = True
-
-        self.thread = threading.Thread(target=self._update, daemon=True)
-        self.thread.start()
-
-    def _update(self):
-        while self.running:
-            ret, frame = self.cap.read()
-            if ret:
-                with self.lock:
-                    self.frame = frame
-
-    def get_latest_frame(self):
-        with self.lock:
-            return self.frame.copy() if self.frame is not None else None
-
-    def release(self):
-        self.running = False
-        self.thread.join()
-        self.cap.release()
 
 class FastImageStitcherNode(Node):
     def __init__(self):
         super().__init__('fast_image_stitcher')
         self.bridge = CvBridge()
 
-        #self.cap1 = cv2.VideoCapture("/dev/video0")
-        #self.cap2 = cv2.VideoCapture("/dev/video4")
-
-        self.cam1 = CameraStream("/dev/video0")
-        self.cam2 = CameraStream("/dev/video4")
+        self.cap1 = cv2.VideoCapture("/dev/video0")
+        self.cap2 = cv2.VideoCapture("/dev/video4")
 
         self.stitcher = cv2.Stitcher_create()
         self.initialized = False
@@ -70,7 +37,7 @@ class FastImageStitcherNode(Node):
         self.srv = self.create_service(GetStitchedImage, 'get_stitched_image', self.handle_stitch_request)
         self.get_logger().info("Fast stitcher service ready at 'get_stitched_image'")
 
-    def flush_camera_buffer(self, cap, flush_count=4):
+    def flush_camera_buffer(self, cap, flush_count):
         for _ in range(flush_count):
             cap.grab()
         # After grabbing several frames, retrieve the latest one:
@@ -79,10 +46,10 @@ class FastImageStitcherNode(Node):
 
     
     def grab_synchronized_frames(self):
-        frame1 = self.cam1.get_latest_frame()
-        frame2 = self.cam2.get_latest_frame()
+        ret1, frame1 = self.flush_camera_buffer(self.cap1)
+        ret2, frame2 = self.flush_camera_buffer(self.cap2)
 
-        if frame1 is None or frame2 is None:
+        if not ret1 or not ret2:
             return None, None
 
         frame1 = cv2.resize(frame1, (640, 480))
@@ -135,10 +102,8 @@ class FastImageStitcherNode(Node):
         return response
 
     def destroy_node(self):
-        #self.cap1.release()
-        #self.cap2.release()
-        self.cam1.release()
-        self.cam2.release()
+        self.cap1.release()
+        self.cap2.release()
         super().destroy_node()
 
 def main(args=None):

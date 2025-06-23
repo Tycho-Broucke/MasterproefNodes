@@ -168,30 +168,26 @@ class TargetSelectorNode(Node):
             return
 
         coordinates = self.parse_coordinates(data.data)
-        # self.get_logger().info(f"Received coordinates: {coordinates}")
-
         selector = TargetSelector()
         shortest_distance, closest_person, fallback_coord = selector.get_shortest_distance(coordinates, 'R', 'P', None)
 
-        msg = String()
-
-        if fallback_coord:
-            # Apply the homography transformation to the fallback coordinate
-            x_transformed, y_transformed = self.apply_homography(fallback_coord[0], fallback_coord[1])
-
-            # No robot found. Fallback coordinate (transformed)
-            pose_msg = self.create_pose_stamped(x_transformed, y_transformed)
-            self.goal_publisher_.publish(pose_msg)
-        elif shortest_distance is not None and closest_person is not None:
-            # Apply the homography transformation to the closest person's coordinates
+        # Only publish if the closest person is valid
+        if closest_person and closest_person['id'] == 'P':
             x_transformed, y_transformed = self.apply_homography(closest_person['x'], closest_person['y'])
-
-            # Publish the transformed coordinates of the closest person
             pose_msg = self.create_pose_stamped(x_transformed, y_transformed)
             self.goal_publisher_.publish(pose_msg)
+            # self.get_logger().info(f"Published goal for person at ({x_transformed:.2f}, {y_transformed:.2f})")
+            return
+
+        # Fallback: only publish if it's a person (not robot or null)
+        if fallback_coord and fallback_coord[2] == 'P':
+            x_transformed, y_transformed = self.apply_homography(fallback_coord[0], fallback_coord[1])
+            pose_msg = self.create_pose_stamped(x_transformed, y_transformed)
+            self.goal_publisher_.publish(pose_msg)
+            # self.get_logger().warn(f"Fallback: Published goal for person at ({x_transformed:.2f}, {y_transformed:.2f})")
         else:
-            result = "No valid target found."
-            self.get_logger().info(result)
+            result = "No valid person target found. Skipping goal publish."
+            #self.get_logger().info(result)
         
 
     def parse_coordinates(self, data):

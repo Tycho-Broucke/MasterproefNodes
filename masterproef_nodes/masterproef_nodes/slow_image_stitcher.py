@@ -9,6 +9,7 @@ from cv_bridge import CvBridge
 from sensor_msgs.msg import Image
 from masterproef_interfaces.srv import GetStitchedImage
 import cv2
+import time
 
 class SlowImageStitcherNode(Node):
     def __init__(self):
@@ -45,7 +46,13 @@ class SlowImageStitcherNode(Node):
         frame1 = cv2.resize(frame1, (640, 480))
         frame2 = cv2.resize(frame2, (640, 480))
 
+        start_stitch = time.time()
+
         status, stitched = self.stitcher.stitch([frame1, frame2])
+
+        end_stitch = time.time()
+        stitching_duration = end_stitch - start_stitch
+        self.get_logger().info(f"Stitching took {stitching_duration:.3f} seconds")
 
         if status != cv2.Stitcher_OK:
             response.success = False
